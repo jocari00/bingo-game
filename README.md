@@ -13,5 +13,5 @@ Built for clarity, teamwork, and test coverage — not production.
 - Simple **wallet system** handles ticket costs and line prizes
 - Fully playable in the terminal
 
-This project is organized for modular development and collaborative ownership.x
+This project is organized for modular development and collaborative ownership.
 ---
