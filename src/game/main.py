@@ -316,7 +316,7 @@ def play_interactive_demo():
 
 
 class NumberDrawer:
-    """Simple drawer for numbers 1..90 with no duplicates.
+    """Simple drawer for numbers 1 to 90 with no duplicates.
 
     Usage:
         d = NumberDrawer(seed=42)
