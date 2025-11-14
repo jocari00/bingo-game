@@ -3,12 +3,12 @@ import pathlib
 import random
 
 
-# Ensure 'src' (package root) is on sys.path so we can import game.main
+# Ensure 'src' (package root) is on sys.path so we can import `game.game`
 ROOT = pathlib.Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
 sys.path.insert(0, str(SRC))
 
-from game import main as ticket_module
+from game import game as ticket_module
 
 
 def _col_ranges():

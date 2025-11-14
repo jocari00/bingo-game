@@ -29,7 +29,7 @@ Alternatively you can run the package directly from `src`:
 
 ```powershell
 cd src
-py -3 -m game.main
+py -3 -m game.game
 ```
 
 Tests
