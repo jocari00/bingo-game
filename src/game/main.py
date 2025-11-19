@@ -249,70 +249,117 @@ def play_interactive_demo():
         print("Insufficient funds to buy a ticket. Exiting demo.")
         return
 
-    wallet -= TICKET_COST
-    print(f"Bought 1 ticket for ${TICKET_COST}. Remaining wallet: ${wallet}\n")
+    # Endless mode: keep playing rounds until the user explicitly exits with 'e'
+    session_active = True
+    while session_active:
+        # Ensure the player can buy a ticket for this round
+        if wallet < TICKET_COST:
+            print("Insufficient funds to buy a ticket for the next round.")
+            resp = input("Press 'e' to exit or press Enter to deposit and continue: ").strip().lower()
+            if resp == 'e':
+                break
+            try:
+                dep = int(input("Enter deposit amount: "))
+                if dep > 0:
+                    wallet += dep
+                    print(f"Deposited ${dep}. Wallet: ${wallet}")
+                else:
+                    print("No deposit made.")
+            except Exception:
+                print("Invalid deposit. Exiting.")
+                break
+            if wallet < TICKET_COST:
+                print("Still insufficient funds. Exiting.")
+                break
 
-    ticket = generate_unique_tickets(1)[0]
-    drawer = NumberDrawer()
-    drawn_set: Set[int] = set()
+        wallet -= TICKET_COST
+        print(f"Bought 1 ticket for ${TICKET_COST}. Remaining wallet: ${wallet}\n")
 
-    line_claimed = False
+        ticket = generate_unique_tickets(1)[0]
+        drawer = NumberDrawer()
+        drawn_set: Set[int] = set()
+        line_claimed = False
 
-    print("Your ticket:")
-    print_ticket(ticket, drawn=drawn_set)
-
-    print("\nControls: press Enter to draw next number, 'l' to claim Line, 'b' to claim Bingo")
-
-    while True:
-        try:
-            n = drawer.draw_next()
-        except StopIteration:
-            print("No more numbers to draw. Game over.")
-            break
-        drawn_set.add(n)
-        print(f"\nNumber drawn: {n}")
-        print("Draw history:", drawer.drawn())
+        print("Your ticket:")
         print_ticket(ticket, drawn=drawn_set)
 
-        # If the latest draw completed the ticket, auto-detect Bingo and end the game
-        if check_bingo_complete(ticket, drawn_set):
-            BINGO_PRIZE = LINE_PRIZE * 4
-            wallet += BINGO_PRIZE
-            print(f"\nAll numbers on your ticket have been called! Automatic BINGO. You win ${BINGO_PRIZE}. Wallet: ${wallet}")
-            break
+        print("\nControls: press Enter to draw next number, 'l' to claim Line, 'b' to claim Bingo")
 
-        resp = input("Claim? (Enter=continue, l=claim Line, b=claim Bingo): ").strip().lower()
-        if resp == "l":
-            if line_claimed:
-                print("Line already claimed earlier. No further line prizes allowed.")
-                continue
-            valid = validate_line_claim(ticket, drawn_set)
-            if valid:
-                line_claimed = True
-                wallet += LINE_PRIZE
-                print(f"Valid LINE! You win ${LINE_PRIZE}. Wallet: ${wallet}")
-                print("Game will continue until someone calls Bingo (you can press 'b' to claim).\n")
-                # DO NOT end the game on line claim; continue drawing
-                continue
-            else:
-                print("Invalid claim — that is not a complete line. No prize awarded.")
-                # continue drawing; no further penalty for this demo
-                continue
+        round_active = True
+        while round_active:
+            try:
+                n = drawer.draw_next()
+            except StopIteration:
+                print("No more numbers to draw for this round.")
+                break
+            drawn_set.add(n)
+            print(f"\nNumber drawn: {n}")
+            print("Draw history:", drawer.drawn())
+            print_ticket(ticket, drawn=drawn_set)
 
-        if resp == "b":
-            valid_bingo = validate_bingo_claim(ticket, drawn_set)
-            if valid_bingo:
-                # award a bingo prize (larger than line) and end the game
+            # If the latest draw completed the ticket, auto-detect Bingo
+            if check_bingo_complete(ticket, drawn_set):
                 BINGO_PRIZE = LINE_PRIZE * 4
                 wallet += BINGO_PRIZE
-                print(f"Valid BINGO! You win ${BINGO_PRIZE}. Wallet: ${wallet}")
-                break
-            else:
-                print("Invalid Bingo claim — not all numbers are drawn yet. No prize awarded.")
-                continue
-        # otherwise (Enter) just continue to next draw
+                print(f"\nAll numbers on your ticket have been called! Automatic BINGO. You win ${BINGO_PRIZE}. Wallet: ${wallet}")
 
-    print(f"Demo finished. Final wallet: ${wallet}")
+                # Prompt for endless mode controls
+                while True:
+                    choice = input("Press 'e' to end this game, or 'r' to repeat again: ").strip().lower()
+                    if choice == 'e':
+                        session_active = False
+                        round_active = False
+                        break
+                    if choice == 'r':
+                        # start a new round
+                        round_active = False
+                        break
+                    print("Invalid choice. Press 'e' or 'r'.")
+                break
+
+            resp = input("Claim? (Enter=continue, l=claim Line, b=claim Bingo): ").strip().lower()
+            if resp == "l":
+                if line_claimed:
+                    print("Line already claimed earlier. No further line prizes allowed.")
+                    continue
+                valid = validate_line_claim(ticket, drawn_set)
+                if valid:
+                    line_claimed = True
+                    wallet += LINE_PRIZE
+                    print(f"Valid LINE! You win ${LINE_PRIZE}. Wallet: ${wallet}\n")
+                else:
+                    print("Invalid claim — that is not a complete line. No prize awarded.")
+                continue
+
+            if resp == "b":
+                valid_bingo = validate_bingo_claim(ticket, drawn_set)
+                if valid_bingo:
+                    BINGO_PRIZE = LINE_PRIZE * 4
+                    wallet += BINGO_PRIZE
+                    print(f"Valid BINGO! You win ${BINGO_PRIZE}. Wallet: ${wallet}")
+
+                    # Prompt for endless mode controls after a manual bingo
+                    while True:
+                        choice = input("Press 'e' to end this game, or 'r' to repeat again: ").strip().lower()
+                        if choice == 'e':
+                            session_active = False
+                            round_active = False
+                            break
+                        if choice == 'r':
+                            round_active = False
+                            break
+                        print("Invalid choice. Press 'e' or 'r'.")
+                    break
+                else:
+                    print("Invalid Bingo claim — not all numbers are drawn yet. No prize awarded.")
+                    continue
+            # otherwise (Enter) just continue to next draw
+
+        # round finished (either by bingo and choice, or by deck exhaustion)
+        if not session_active:
+            break
+
+    print(f"Session finished. Final wallet: ${wallet}")
 
 
 class NumberDrawer:
