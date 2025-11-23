@@ -282,13 +282,16 @@ def play_interactive_demo():
 
         drawer = NumberDrawer()
         drawn_set: Set[int] = set()
+        # player's manually marked numbers (player must confirm each draw)
+        player_marked_set: Set[int] = set()
 
         # Track who (if anyone) has claimed the line or bingo for this round
         line_claimed_by: Optional[str] = None  # 'player' | 'bot' | None
         bingo_claimed_by: Optional[str] = None
 
         print("Your ticket:")
-        print_ticket(player_ticket, drawn=drawn_set)
+        # show player's own marked numbers (initially none)
+        print_ticket(player_ticket, drawn=player_marked_set)
         print("(Bot has its own ticket.)")
 
         print("\nControls: press Enter to draw next number, 'l' to attempt to claim Line, 'b' to attempt to claim Bingo")
@@ -302,11 +305,30 @@ def play_interactive_demo():
                 break
             drawn_set.add(n)
             print(f"\nNumber drawn: {n}")
-            print("Draw history:", drawer.drawn())
-            print_ticket(player_ticket, drawn=drawn_set)
+            #print("Draw history:", drawer.drawn())
 
-            # Check for line completion for both players immediately after the draw
-            player_line = check_line_complete(player_ticket, drawn_set)
+            # Ask player to manually confirm and mark the number on their ticket
+            while True:
+                mark_resp = input(f"Do you have {n} on your ticket? (y/n): ").strip().lower()
+                if mark_resp in ("y", "n", ""):
+                    break
+                print("Please answer 'y' or 'n'.")
+
+            if mark_resp == "y":
+                # validate and mark if correct, else show error
+                if n in ticket_numbers_set(player_ticket):
+                    if n in player_marked_set:
+                        print("That number is already marked on your ticket.")
+                    else:
+                        player_marked_set.add(n)
+                        print(f"Marked {n} on your ticket.")
+                else:
+                    print("Error: that number is not on your ticket. No mark applied.")
+            # show player's ticket with their own marks
+            print_ticket(player_ticket, drawn=player_marked_set)
+
+            # Check for line completion for both players: player uses their marked set, bot uses drawn_set
+            player_line = check_line_complete(player_ticket, player_marked_set)
             bot_line = check_line_complete(bot_ticket, drawn_set)
 
             # If the bot completes a line and no one has claimed it yet, bot claims immediately
@@ -322,7 +344,7 @@ def play_interactive_demo():
                     print(f"Line already claimed by {line_claimed_by}. No prize for you.")
                     continue
 
-                valid = validate_line_claim(player_ticket, drawn_set)
+                valid = validate_line_claim(player_ticket, player_marked_set)
                 if valid:
                     line_claimed_by = 'player'
                     wallet += LINE_PRIZE
@@ -332,7 +354,7 @@ def play_interactive_demo():
                 continue
 
             # Automatic bingo check: if either has bingo, award and end round
-            player_bingo = check_bingo_complete(player_ticket, drawn_set)
+            player_bingo = check_bingo_complete(player_ticket, player_marked_set)
             bot_bingo = check_bingo_complete(bot_ticket, drawn_set)
             if player_bingo or bot_bingo:
                 BINGO_PRIZE = LINE_PRIZE * 4
@@ -359,14 +381,13 @@ def play_interactive_demo():
                         break
                     print("Invalid choice. Press 'e' or 'r'.")
                 break
-
             if resp == "b":
                 # Only allow player's bingo claim if nobody has already claimed bingo
                 if bingo_claimed_by is not None:
                     print(f"Bingo already claimed by {bingo_claimed_by}. No prize for you.")
                     continue
 
-                valid_bingo = validate_bingo_claim(player_ticket, drawn_set)
+                valid_bingo = validate_bingo_claim(player_ticket, player_marked_set)
                 if valid_bingo:
                     bingo_claimed_by = 'player'
                     BINGO_PRIZE = LINE_PRIZE * 4
