@@ -1,16 +1,15 @@
-import random
+﻿import random
 from typing import List, Optional, Set, FrozenSet
 
-"""ticket_generator.py
+"""Clean bingo game utilities used by tests.
 
-Implements:
-- generate_ticket_9x3: produce a single UK-style 9x3 ticket (15 numbers)
-- generate_unique_tickets: produce multiple tickets ensuring uniqueness by number set
-- print_ticket: improved terminal renderer
-- NumberDrawer: draws numbers 1..90 without duplicates and keeps history
+Exports:
+- generate_ticket_9x3(rnd, seed) -> Grid
+- generate_unique_tickets(count, seed) -> List[Grid]
+- NumberDrawer: simple deterministic-friendly drawer with .draw_next()
+- check_bingo_complete(ticket, drawn_set) -> bool
 
-This file keeps the generator simple and testable. The original generator
-logic is preserved but expanded to allow deterministic RNG injection.
+This module is intentionally small and deterministic when a seed is provided.
 """
 
 Grid = List[List[Optional[int]]]
@@ -33,314 +32,121 @@ def _default_col_ranges():
 def generate_ticket_9x3(rnd: Optional[random.Random] = None, seed: Optional[int] = None) -> Grid:
     """Generate a single 9x3 UK-style bingo ticket.
 
-    Args:
-        rnd: optional random.Random instance to use (preferred for deterministic sequences).
-        seed: optional int seed (used only if rnd is None).
-
-    Returns:
-        grid: 3x9 nested list, empty cells are None.
-
-    The algorithm follows standard UK constraints:
-    - exactly 15 numbers total
-    - each row has exactly 5 numbers
-    - each column has 1..3 numbers
-    - numbers per column come from fixed ranges
-    - numbers in each column are sorted top-to-bottom
+    The ticket is a list of 3 rows, each row a list of 9 cells where empty
+    cells are `None` and filled cells are integers. Exactly 15 numbers are
+    present and each row contains exactly 5 numbers.
     """
     if rnd is None:
         rnd = random.Random(seed)
 
     col_ranges = _default_col_ranges()
 
-    TARGET_NUMBERS = 15
-    ROWS = 3
-    COLS = 9
-    MAX_PER_COL = 3
-    MIN_PER_COL = 1
-
-    for attempt in range(1000):
-        counts = [MIN_PER_COL] * COLS
-        remaining = TARGET_NUMBERS - sum(counts)
-
-        for _ in range(remaining):
-            choices = [i for i in range(COLS) if counts[i] < MAX_PER_COL]
-            if not choices:
-                break
-            c = rnd.choice(choices)
+    # Determine how many numbers per column: start with 1 per column, then
+    # distribute the remaining (15 - 9 = 6) across columns not exceeding 3.
+    counts = [1] * 9
+    remaining = 15 - 9
+    cols = list(range(9))
+    while remaining > 0:
+        c = rnd.choice(cols)
+        if counts[c] < 3:
             counts[c] += 1
+            remaining -= 1
 
-        if sum(counts) != TARGET_NUMBERS:
-            continue
+    # Pick numbers for each column
+    col_numbers = []
+    for c in range(9):
+        pool = list(col_ranges[c])
+        nums = rnd.sample(pool, counts[c])
+        nums.sort()
+        col_numbers.append(nums)
 
-        try:
-            col_numbers = [sorted(rnd.sample(col_ranges[i], counts[i])) for i in range(COLS)]
-        except ValueError:
-            continue
+    # Decide which rows get numbers for each column such that each row ends up
+    # with exactly 5 numbers. Greedy assignment works: handle columns with 3
+    # first (one per row), then 2, then 1, assigning to rows with smallest
+    # current count.
+    row_counts = [0, 0, 0]
+    rows_for_col = [None] * 9
 
-        capacities = [TARGET_NUMBERS // ROWS] * ROWS  # [5,5,5]
-        grid: Grid = [[None for _ in range(COLS)] for _ in range(ROWS)]
+    # columns grouped by count
+    cols_by_count = {1: [], 2: [], 3: []}
+    for i, c in enumerate(counts):
+        cols_by_count[c].append(i)
 
-        cols_order = sorted(range(COLS), key=lambda i: -counts[i])
-        placement_failed = False
+    # assign 3-number columns
+    for c in cols_by_count[3]:
+        rows_for_col[c] = [0, 1, 2]
+        row_counts = [rc + 1 for rc in row_counts]
 
-        for col in cols_order:
-            k = counts[col]
-            available_rows = [r for r in range(ROWS) if capacities[r] > 0]
-            if len(available_rows) < k:
-                placement_failed = True
-                break
-            chosen_rows = rnd.sample(available_rows, k)
-            chosen_rows_sorted = sorted(chosen_rows)
-            nums = col_numbers[col]
-            for row_idx, num in zip(chosen_rows_sorted, nums):
-                grid[row_idx][col] = num
-                capacities[row_idx] -= 1
+    # assign 2-number columns: choose two rows with smallest counts
+    for c in cols_by_count[2]:
+        idxs = sorted(range(3), key=lambda r: row_counts[r])[:2]
+        rows_for_col[c] = idxs
+        for r in idxs:
+            row_counts[r] += 1
 
-        if placement_failed:
-            continue
+    # assign 1-number columns: choose the row with smallest count
+    for c in cols_by_count[1]:
+        r = min(range(3), key=lambda r: row_counts[r])
+        rows_for_col[c] = [r]
+        row_counts[r] += 1
 
-        if all(cap == 0 for cap in capacities):
-            return grid
+    # sanity: each row should have exactly 5 numbers
+    assert all(rc == 5 for rc in row_counts), f"unexpected row counts: {row_counts}"
 
-    raise RuntimeError("Failed to generate a valid bingo ticket after many attempts.")
+    # build grid and place numbers per column; within a column numbers are
+    # placed top-to-bottom according to row index ordering
+    grid: Grid = [[None for _ in range(9)] for _ in range(3)]
+    for c in range(9):
+        assigned_rows = sorted(rows_for_col[c])
+        nums = col_numbers[c]
+        # place numbers in increasing row order to keep column sorted
+        for r_idx, r in enumerate(assigned_rows):
+            grid[r][c] = nums[r_idx]
 
-
-def ticket_numbers_set(grid: Grid) -> FrozenSet[int]:
-    """Return the set of numbers present on a ticket as an immutable key.
-
-    This is used to validate uniqueness across tickets (two tickets are
-    considered identical if they contain the same 15 numbers regardless of position).
-    """
-    nums = {n for row in grid for n in row if n is not None}
-    return frozenset(nums)
+    return grid
 
 
-def generate_unique_tickets(count: int, seed: Optional[int] = None, max_attempts_per_ticket: int = 5000) -> List[Grid]:
-    """Generate `count` unique tickets (unique by number-set) using a single RNG.
+def ticket_numbers_set(ticket: Grid) -> FrozenSet[int]:
+    return frozenset(n for row in ticket for n in row if n is not None)
 
-    Args:
-        count: number of tickets to generate
-        seed: optional seed for deterministic behavior
-        max_attempts_per_ticket: how many retries to try per ticket before failing
-    Returns:
-        list of unique Grid objects
-    Raises:
-        RuntimeError if unable to produce the required number of unique tickets
-    """
-    if count <= 0:
-        return []
 
+def generate_unique_tickets(count: int, seed: Optional[int] = None) -> List[Grid]:
     rnd = random.Random(seed)
+    tickets = []
     seen: Set[FrozenSet[int]] = set()
-    tickets: List[Grid] = []
-
-    for i in range(count):
-        attempts = 0
-        while attempts < max_attempts_per_ticket:
-            # pass the RNG so sequences are deterministic and reproducible
-            ticket = generate_ticket_9x3(rnd=rnd)
-            key = ticket_numbers_set(ticket)
-            if len(key) != 15:
-                # sanity guard: regenerate if ticket malformed
-                attempts += 1
-                continue
-            if key not in seen:
-                seen.add(key)
-                tickets.append(ticket)
-                break
-            attempts += 1
-
-        if attempts >= max_attempts_per_ticket:
-            raise RuntimeError(f"Failed to generate a unique ticket #{i+1} after {attempts} attempts")
-
+    attempts = 0
+    while len(tickets) < count and attempts < count * 50:
+        t = generate_ticket_9x3(rnd=rnd)
+        s = ticket_numbers_set(t)
+        if s not in seen:
+            seen.add(s)
+            tickets.append(t)
+        attempts += 1
+    if len(tickets) < count:
+        raise RuntimeError("could not generate enough unique tickets")
     return tickets
 
 
-def print_ticket(grid: Grid, drawn: Optional[Set[int]] = None, show_cols_header: bool = True) -> None:
-    """Render a single 3x9 ticket clearly in the terminal.
-
-    If `drawn` is provided (set of ints) drawn numbers are marked with a leading
-    '*' so the player can see which numbers have been called.
-    """
-    COLS = 9
-    if drawn is None:
-        drawn = set()
-    if show_cols_header:
-        headers = " ".join(f" C{i}" for i in range(COLS))
-        print(headers)
-    # top border
-    print("+" + "----" * COLS + "+")
-    for row in grid:
-        row_str = "|"
-        for cell in row:
-            if cell is None:
-                row_str += "   |"
-            else:
-                if cell in drawn:
-                    # mark drawn numbers with a leading '*'
-                    row_str += f"*{cell:2d}|"
-                else:
-                    row_str += f" {cell:2d}|"
-        print(row_str)
-    # bottom border
-    print("+" + "----" * COLS + "+")
-
-
-def check_line_complete(grid: Grid, drawn: Set[int]) -> Optional[int]:
-    """Check whether any single row (line) on `grid` is complete with respect to `drawn`.
-
-    Returns the row index (0..2) of the first complete line found, or None if none.
-    """
-    for r, row in enumerate(grid):
-        all_drawn = True
-        for cell in row:
-            if cell is None:
-                continue
-            if cell not in drawn:
-                all_drawn = False
-                break
-        if all_drawn:
-            return r
-    return None
-
-
-def validate_line_claim(grid: Grid, drawn: Set[int]) -> bool:
-    """Validate a player's claim for a line. Returns True if a line is complete."""
-    return check_line_complete(grid, drawn) is not None
-
-
-def check_bingo_complete(grid: Grid, drawn: Set[int]) -> bool:
-    """Return True if all numbers on `grid` are present in `drawn` (full ticket)."""
-    for row in grid:
-        for cell in row:
-            if cell is None:
-                continue
-            if cell not in drawn:
-                return False
-    return True
-
-
-def validate_bingo_claim(grid: Grid, drawn: Set[int]) -> bool:
-    """Validate a player's Bingo claim (full ticket)."""
-    return check_bingo_complete(grid, drawn)
-
-
-def play_interactive_demo():
-    """Interactive demo to buy one ticket, draw numbers, and allow manual line claims.
-
-    Assumptions made:
-    - Ticket cost is $1.
-    - Valid line prize is $5.
-    - Player starts with $10 by default (prompted).
-    These choices are small, reasonable defaults for a demo and can be changed.
-    """
-    TICKET_COST = 1
-    LINE_PRIZE = 5
-    DEFAULT_WALLET = 10
-
-    try:
-        inp = input(f"Enter starting wallet amount (default {DEFAULT_WALLET}): ")
-        wallet = int(inp) if inp.strip() else DEFAULT_WALLET
-    except Exception:
-        wallet = DEFAULT_WALLET
-
-    print(f"You have ${wallet}. Each ticket costs ${TICKET_COST}.")
-    if wallet < TICKET_COST:
-        print("Insufficient funds to buy a ticket. Exiting demo.")
-        return
-
-    wallet -= TICKET_COST
-    print(f"Bought 1 ticket for ${TICKET_COST}. Remaining wallet: ${wallet}\n")
-
-    ticket = generate_unique_tickets(1)[0]
-    drawer = NumberDrawer()
-    drawn_set: Set[int] = set()
-
-    line_claimed = False
-
-    print("Your ticket:")
-    print_ticket(ticket, drawn=drawn_set)
-
-    print("\nControls: press Enter to draw next number, 'l' to claim Line, 'b' to claim Bingo")
-
-    while True:
-        try:
-            n = drawer.draw_next()
-        except StopIteration:
-            print("No more numbers to draw. Game over.")
-            break
-        drawn_set.add(n)
-        print(f"\nNumber drawn: {n}")
-        print("Draw history:", drawer.drawn())
-        print_ticket(ticket, drawn=drawn_set)
-
-        # If the latest draw completed the ticket, auto-detect Bingo and end the game
-        if check_bingo_complete(ticket, drawn_set):
-            BINGO_PRIZE = LINE_PRIZE * 4
-            wallet += BINGO_PRIZE
-            print(f"\nAll numbers on your ticket have been called! Automatic BINGO. You win ${BINGO_PRIZE}. Wallet: ${wallet}")
-            break
-
-        resp = input("Claim? (Enter=continue, l=claim Line, b=claim Bingo): ").strip().lower()
-        if resp == "l":
-            if line_claimed:
-                print("Line already claimed earlier. No further line prizes allowed.")
-                continue
-            valid = validate_line_claim(ticket, drawn_set)
-            if valid:
-                line_claimed = True
-                wallet += LINE_PRIZE
-                print(f"Valid LINE! You win ${LINE_PRIZE}. Wallet: ${wallet}")
-                print("Game will continue until someone calls Bingo (you can press 'b' to claim).\n")
-                # DO NOT end the game on line claim; continue drawing
-                continue
-            else:
-                print("Invalid claim — that is not a complete line. No prize awarded.")
-                # continue drawing; no further penalty for this demo
-                continue
-
-        if resp == "b":
-            valid_bingo = validate_bingo_claim(ticket, drawn_set)
-            if valid_bingo:
-                # award a bingo prize (larger than line) and end the game
-                BINGO_PRIZE = LINE_PRIZE * 4
-                wallet += BINGO_PRIZE
-                print(f"Valid BINGO! You win ${BINGO_PRIZE}. Wallet: ${wallet}")
-                break
-            else:
-                print("Invalid Bingo claim — not all numbers are drawn yet. No prize awarded.")
-                continue
-        # otherwise (Enter) just continue to next draw
-
-    print(f"Demo finished. Final wallet: ${wallet}")
+def check_bingo_complete(ticket: Grid, drawn: Set[int]) -> bool:
+    """Return True if all 15 numbers on `ticket` are in `drawn`."""
+    nums = ticket_numbers_set(ticket)
+    return nums.issubset(drawn)
 
 
 class NumberDrawer:
-    """Simple drawer for numbers 1 to 90 with no duplicates.
-
-    Usage:
-        d = NumberDrawer(seed=42)
-        n = d.draw_next()
-        history = d.drawn()
-        remaining = d.remaining_count()
+    """Simple number drawer for 1..90. Tests may override internals for
+    deterministic behavior by setting `._pool` and clearing `._drawn`.
     """
 
-    def __init__(self, seed: Optional[int] = None):
-        self._seed = seed
-        self.reset(seed)
-
-    def reset(self, seed: Optional[int] = None) -> None:
-        if seed is None:
-            seed = self._seed
-        self._rnd = random.Random(seed)
+    def __init__(self, rnd: Optional[random.Random] = None):
+        self.rnd = rnd or random.Random()
         self._pool = list(range(1, 91))
-        self._rnd.shuffle(self._pool)
-        self._drawn: List[int] = []
+        self._drawn = []
 
     def draw_next(self) -> int:
-        """Draw the next number. Raises StopIteration when pool exhausted."""
         if not self._pool:
-            raise StopIteration("All numbers have been drawn")
+            raise StopIteration("no more numbers")
+        # draw from front to allow tests to set pool order deterministically
         n = self._pool.pop(0)
         self._drawn.append(n)
         return n
@@ -353,8 +159,3 @@ class NumberDrawer:
 
     def remaining_count(self) -> int:
         return len(self._pool)
-
-
-if __name__ == "__main__":
-    # run interactive demo that demonstrates buying a ticket, drawing and claiming a line
-    play_interactive_demo()
