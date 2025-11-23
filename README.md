@@ -41,6 +41,34 @@ py -3 -m pip install -r requirements.txt
 py -3 -m pytest -q
 ```
 
+Docker
+
+Build the Docker image (from project root):
+
+```powershell
+cd C:\Users\franc\bingo-project\bingo-game
+docker build -t mini-bingo:latest .
+```
+
+Run tests inside a container (quick validation):
+
+```powershell
+docker run --rm mini-bingo:latest
+```
+
+Run the interactive demo in a container (allocate TTY):
+
+```powershell
+docker run --rm -it -v ${PWD}:/app -v ${PWD}\\data:/app/data mini-bingo:latest py -3 main.py
+```
+
+Or use docker-compose for development which mounts your working directory:
+
+```powershell
+docker-compose up app
+```
+
+
 Balance & Rewards
 
 - Wallet is persisted in `data/wallet.json` inside the project folder.
