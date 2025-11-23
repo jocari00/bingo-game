@@ -1,0 +1,15 @@
+version: '3.8'
+services:
+  app:
+    build: .
+    volumes:
+      - ./:/app
+      - ./data:/app/data
+    tty: true
+    stdin_open: true
+    command: ["py", "-3", "main.py"]
+  test:
+    build: .
+    command: ["py", "-3", "-m", "pytest", "-q"]
+    tty: false
+    stdin_open: false
