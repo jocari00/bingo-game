@@ -1,0 +1,49 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    image: bingo-game
+    container_name: bingo-game-app
+    stdin_open: true
+    tty: true
+    environment:
+      - DEBUG=false
+      - SEED_VALUE=
+    volumes:
+      # Uncomment for development to sync code changes
+      # - ./src:/app/src
+    networks:
+      - bingo-network
+
+  # Future services (commented out for now)
+  # database:
+  #   image: postgres:15-alpine
+  #   container_name: bingo-db
+  #   environment:
+  #     POSTGRES_DB: bingo
+  #     POSTGRES_USER: bingo_user
+  #     POSTGRES_PASSWORD: bingo_pass
+  #   volumes:
+  #     - db_data:/var/lib/postgresql/data
+  #   networks:
+  #     - bingo-network
+
+  # api:
+  #   build:
+  #     context: .
+  #     dockerfile: Dockerfile.api
+  #   container_name: bingo-api
+  #   ports:
+  #     - "8080:8080"
+  #   depends_on:
+  #     - database
+  #   networks:
+  #     - bingo-network
+
+networks:
+  bingo-network:
+    driver: bridge
+
+# volumes:
+#   db_data:
